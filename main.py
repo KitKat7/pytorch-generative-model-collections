@@ -7,6 +7,8 @@ from ACGAN import ACGAN
 from WGAN import WGAN
 from WGAN_GP import WGAN_GP
 from infoGAN import infoGAN
+from GAN_dogs import GAN_dogs
+from infoGAN_dogs import infoGAN_dogs
 from EBGAN import EBGAN
 from BEGAN import BEGAN
 
@@ -16,9 +18,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description=desc)
 
     parser.add_argument('--gan_type', type=str, default='EBGAN',
-                        choices=['GAN', 'CGAN', 'infoGAN', 'ACGAN', 'EBGAN', 'BEGAN', 'WGAN', 'WGAN_GP', 'DRAGAN', 'LSGAN'],
+                        choices=['GAN', 'GAN_dogs', 'CGAN', 'infoGAN', 'infoGAN_dogs', 'ACGAN', 'EBGAN', 'BEGAN', 'WGAN', 'WGAN_GP', 'DRAGAN', 'LSGAN'],
                         help='The type of GAN')#, required=True)
-    parser.add_argument('--dataset', type=str, default='mnist', choices=['mnist', 'fashion-mnist', 'celebA'],
+    parser.add_argument('--dataset', type=str, default='mnist', choices=['sdd', 'mnist', 'fashion-mnist', 'celebA'],
                         help='The name of dataset')
     parser.add_argument('--epoch', type=int, default=25, help='The number of epochs to run')
     parser.add_argument('--batch_size', type=int, default=64, help='The size of batch')
@@ -74,12 +76,16 @@ def main():
         # declare instance for GAN
     if args.gan_type == 'GAN':
         gan = GAN(args)
+    elif args.gan_type == 'GAN_dogs':
+        gan = GAN_dogs(args)
     elif args.gan_type == 'CGAN':
         gan = CGAN(args)
     elif args.gan_type == 'ACGAN':
         gan = ACGAN(args)
     elif args.gan_type == 'infoGAN':
-        gan = infoGAN(args, SUPERVISED = True)
+        gan = infoGAN(args, SUPERVISED = False)
+    elif args.gan_type == 'infoGAN_dogs':
+        gan = infoGAN_dogs(args, SUPERVISED=False)
     elif args.gan_type == 'EBGAN':
         gan = EBGAN(args)
     elif args.gan_type == 'WGAN':

@@ -65,6 +65,20 @@ def load_celebA(dir, transform, batch_size, shuffle):
 
     return data_loader
 
+def load_sdd(dir, transform, batch_size, shuffle):
+    # transform = transforms.Compose([
+    #     transforms.CenterCrop(160),
+    #     transform.Scale(64)
+    #     transforms.ToTensor(),
+    #     transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+    # ])
+
+    # data_dir = 'data/celebA'  # this path depends on your computer
+    dset = datasets.ImageFolder(dir, transform)
+    data_loader = torch.utils.data.DataLoader(dset, batch_size, shuffle)
+
+    return data_loader
+
 
 def print_network(net):
     num_params = 0
