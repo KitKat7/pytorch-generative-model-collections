@@ -6,6 +6,9 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
+from src.snlayers.snconv2d import SNConv2d
+from src.snlayers.snlinear import SNLinear
+
 class generator(nn.Module):
     # Network Architecture is exactly same as in infoGAN (https://arxiv.org/abs/1606.03657)
     # Architecture : FC1024_BR-FC7x7x128_BR-(64)4dc2s_BR-(1)4dc2s_S
@@ -63,17 +66,21 @@ class discriminator(nn.Module):
             self.output_dim = 1
 
         self.conv = nn.Sequential(
-            nn.Conv2d(self.input_dim, 64, 4, 2, 1),
+            #nn.Conv2d(self.input_dim, 64, 4, 2, 1),
+            SNConv2d(self.input_dim, 64, 4, 2, 1),
             nn.LeakyReLU(0.2),
-            nn.Conv2d(64, 128, 4, 2, 1),
+            #nn.Conv2d(64, 128, 4, 2, 1),
+            SNConv2d(64, 128, 4, 2, 1),
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2),
         )
         self.fc = nn.Sequential(
-            nn.Linear(128 * (self.input_height // 4) * (self.input_width // 4), 1024),
+            #nn.Linear(128 * (self.input_height // 4) * (self.input_width // 4), 1024),
+            SNLinear(128 * (self.input_height // 4) * (self.input_width // 4), 1024),
             nn.BatchNorm1d(1024),
             nn.LeakyReLU(0.2),
-            nn.Linear(1024, self.output_dim),
+            #nn.Linear(1024, self.output_dim),
+            SNLinear(1024, self.output_dim),
             nn.Sigmoid(),
         )
         utils.initialize_weights(self)
