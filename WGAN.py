@@ -16,7 +16,7 @@ class generator(nn.Module):
             self.input_width = 28
             self.input_dim = 62
             self.output_dim = 1
-        elif dataset == 'celebA':
+        elif dataset == 'celebA' or dataset == 'sdd':
             self.input_height = 64
             self.input_width = 64
             self.input_dim = 62
@@ -56,7 +56,7 @@ class discriminator(nn.Module):
             self.input_width = 28
             self.input_dim = 1
             self.output_dim = 1
-        elif dataset == 'celebA':
+        elif dataset == 'celebA' or dataset == 'sdd':
             self.input_height = 64
             self.input_width = 64
             self.input_dim = 3
@@ -130,6 +130,11 @@ class WGAN(object):
             self.data_loader = utils.load_celebA('data/celebA', transform=transforms.Compose(
                 [transforms.CenterCrop(160), transforms.Scale(64), transforms.ToTensor()]), batch_size=self.batch_size,
                                                  shuffle=True)
+        elif self.dataset == 'sdd':
+            self.data_loader = utils.load_sdd('./data/sdd_full/bounding_box_imgs', transform=transforms.Compose(
+            [transforms.Resize(64), transforms.CenterCrop(64), transforms.ToTensor()]),
+                                          batch_size=self.batch_size,
+                                          shuffle=True)
         self.z_dim = 62
 
         # fixed noise
@@ -150,6 +155,8 @@ class WGAN(object):
         else:
             self.y_real_, self.y_fake_ = Variable(torch.ones(self.batch_size, 1)), Variable(torch.zeros(self.batch_size, 1))
 
+        self.load()
+            
         self.D.train()
         print('training start!!')
         start_time = time.time()

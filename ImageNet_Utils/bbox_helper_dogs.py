@@ -74,6 +74,7 @@ class BBoxHelper:
         for box in bbs:
             count = count + 1
             outPath = str(os.path.join(outputFolder, self.annotation_filename + '_box' + str(count) + '.jpg'))
+            box = box.convert("RGB")
             box.save(outPath)
             print('save to ' + outPath)
 
