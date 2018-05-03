@@ -5,6 +5,7 @@ from LSGAN import LSGAN
 from DRAGAN import DRAGAN
 from ACGAN import ACGAN
 from WGAN import WGAN
+from WGAN_grayscale import WGAN_grayscale
 from WGAN_GP import WGAN_GP
 from infoGAN import infoGAN
 from GAN_dogs import GAN_dogs
@@ -12,13 +13,15 @@ from infoGAN_dogs import infoGAN_dogs
 from EBGAN import EBGAN
 from BEGAN import BEGAN
 
+from WGAN_info_grayscale import WGAN_info_grayscale
+
 """parsing and configuration"""
 def parse_args():
     desc = "Pytorch implementation of GAN collections"
     parser = argparse.ArgumentParser(description=desc)
 
     parser.add_argument('--gan_type', type=str, default='EBGAN',
-                        choices=['GAN', 'GAN_dogs', 'CGAN', 'infoGAN', 'infoGAN_dogs', 'ACGAN', 'EBGAN', 'BEGAN', 'WGAN', 'WGAN_GP', 'DRAGAN', 'LSGAN'],
+                        choices=['GAN', 'GAN_dogs', 'CGAN', 'infoGAN', 'infoGAN_dogs', 'ACGAN', 'EBGAN', 'BEGAN', 'WGAN', 'WGAN_grayscale', 'WGAN_GP', 'DRAGAN', 'LSGAN', 'WGAN_info_grayscale'],
                         help='The type of GAN')#, required=True)
     parser.add_argument('--dataset', type=str, default='mnist', choices=['sdd', 'mnist', 'fashion-mnist', 'celebA'],
                         help='The name of dataset')
@@ -90,6 +93,8 @@ def main():
         gan = EBGAN(args)
     elif args.gan_type == 'WGAN':
         gan = WGAN(args)
+    elif args.gan_type == 'WGAN_grayscale':
+        gan = WGAN_grayscale(args)
     elif args.gan_type == 'WGAN_GP':
         gan = WGAN_GP(args)
     elif args.gan_type == 'DRAGAN':
@@ -98,6 +103,8 @@ def main():
         gan = LSGAN(args)
     elif args.gan_type == 'BEGAN':
         gan = BEGAN(args)
+    elif args.gan_type == 'WGAN_info_grayscale':
+        gan = WGAN_info_grayscale(args)
     else:
         raise Exception("[!] There is no option for " + args.gan_type)
 

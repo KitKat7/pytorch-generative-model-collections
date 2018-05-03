@@ -2,6 +2,8 @@
 data
 models
 results
+runs
+logs
 
 ## for python
 # Byte-compiled / optimized / DLL files

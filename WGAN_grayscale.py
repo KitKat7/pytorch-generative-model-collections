@@ -28,7 +28,7 @@ class generator(nn.Module):
             self.input_height = 64
             self.input_width = 64
             self.input_dim = 62
-            self.output_dim = 3
+            self.output_dim = 1
 
         self.fc = nn.Sequential(
             nn.Linear(self.input_dim, 1024),
@@ -67,7 +67,7 @@ class discriminator(nn.Module):
         elif dataset == 'celebA' or dataset == 'sdd':
             self.input_height = 64
             self.input_width = 64
-            self.input_dim = 3
+            self.input_dim = 1
             self.output_dim = 1
 
         self.conv = nn.Sequential(
@@ -97,7 +97,7 @@ class discriminator(nn.Module):
 
         return x
 
-class WGAN(object):
+class WGAN_grayscale(object):
     def __init__(self, args):
         # parameters
         self.epoch = args.epoch
@@ -147,7 +147,7 @@ class WGAN(object):
                                                  shuffle=True)
         elif self.dataset == 'sdd':
             self.data_loader = utils.load_sdd('./data/vgg_pets/processed/bounding_box_imgs', transform=transforms.Compose(
-            [transforms.Resize(64), transforms.CenterCrop(64), transforms.ToTensor(),]),
+            [transforms.Grayscale(), transforms.Resize(64), transforms.CenterCrop(64), transforms.ToTensor(), ]),
                                           batch_size=self.batch_size,
                                           shuffle=True)
         self.z_dim = 62

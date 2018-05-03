@@ -1,9 +1,7 @@
 import utils, torch, time, os, pickle, itertools
 import numpy as np
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-import matplotlib.pyplot as plt
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
@@ -13,21 +11,29 @@ import datetime
 from tensorboardX import SummaryWriter
 import torchvision.utils as vutils
 
+from src.snlayers.snconv2d import SNConv2d
+from src.snlayers.snlinear import SNLinear
+
+len_continuous_code = 2
+len_discrete_code = 2
+
 class generator(nn.Module):
     # Network Architecture is exactly same as in infoGAN (https://arxiv.org/abs/1606.03657)
     # Architecture : FC1024_BR-FC7x7x128_BR-(64)4dc2s_BR-(1)4dc2s_S
-    def __init__(self, dataset='mnist'):
+    def __init__(self, dataset = 'mnist'):
         super(generator, self).__init__()
         if dataset == 'mnist' or dataset == 'fashion-mnist':
             self.input_height = 28
             self.input_width = 28
-            self.input_dim = 62 + 12
+            self.input_dim = 62
             self.output_dim = 1
-        elif dataset == 'sdd':
+        elif dataset == 'celebA' or dataset == 'sdd':
             self.input_height = 64
             self.input_width = 64
-            self.input_dim = 62 + 12
+            self.input_dim = 62
             self.output_dim = 1
+        
+        self.input_dim += (len_continuous_code + len_discrete_code)
 
         self.fc = nn.Sequential(
             nn.Linear(self.input_dim, 1024),
@@ -54,42 +60,38 @@ class generator(nn.Module):
 
         return x
 
-
 class discriminator(nn.Module):
     # Network Architecture is exactly same as in infoGAN (https://arxiv.org/abs/1606.03657)
     # Architecture : (64)4c2s-(128)4c2s_BL-FC1024_BL-FC1_S
-    def __init__(self, dataset='mnist'):
+    def __init__(self, dataset = 'mnist'):
         super(discriminator, self).__init__()
         if dataset == 'mnist' or dataset == 'fashion-mnist':
             self.input_height = 28
             self.input_width = 28
             self.input_dim = 1
             self.output_dim = 1
-            self.len_discrete_code = 10  # categorical distribution (i.e. label)
-            self.len_continuous_code = 2  # gaussian distribution (e.g. rotation, thickness)
         elif dataset == 'celebA' or dataset == 'sdd':
             self.input_height = 64
             self.input_width = 64
             self.input_dim = 1
             self.output_dim = 1
-            self.len_discrete_code = 10  # categorical distribution (i.e. label)
-            self.len_continuous_code = 2  # gaussian distribution (e.g. rotation, thickness)
-
-        # if dataset == 'sdd':
-        #     self.input_dim = 3
 
         self.conv = nn.Sequential(
-            nn.Conv2d(self.input_dim, 64, 4, 2, 1),
+            # nn.Conv2d(self.input_dim, 64, 4, 2, 1),
+            SNConv2d(self.input_dim, 64, 4, 2, 1),
             nn.LeakyReLU(0.2),
-            nn.Conv2d(64, 128, 4, 2, 1),
+            # nn.Conv2d(64, 128, 4, 2, 1),
+            SNConv2d(64, 128, 4, 2, 1),
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2),
         )
         self.fc = nn.Sequential(
-            nn.Linear(128 * (self.input_height // 4) * (self.input_width // 4), 1024),
+            #nn.Linear(128 * (self.input_height // 4) * (self.input_width // 4), 1024),
+            SNLinear(128 * (self.input_height // 4) * (self.input_width // 4), 1024),
             nn.BatchNorm1d(1024),
             nn.LeakyReLU(0.2),
-            nn.Linear(1024, self.output_dim + self.len_continuous_code + self.len_discrete_code),
+            #nn.Linear(1024, self.output_dim),
+            SNLinear(1024, self.output_dim + len_continuous_code + len_discrete_code),
             nn.Sigmoid(),
         )
         utils.initialize_weights(self)
@@ -98,15 +100,16 @@ class discriminator(nn.Module):
         x = self.conv(input)
         x = x.view(-1, 128 * (self.input_height // 4) * (self.input_width // 4))
         x = self.fc(x)
-        a = F.sigmoid(x[:, self.output_dim])
-        b = x[:, self.output_dim:self.output_dim + self.len_continuous_code]
-        c = x[:, self.output_dim + self.len_continuous_code:]
+        
+        # a = F.sigmoid(x[:, self.output_dim])
+        a = x[:, self.output_dim]
+        b = x[:, self.output_dim:self.output_dim + len_continuous_code]
+        c = x[:, self.output_dim + len_continuous_code:]
 
-        return a, b, c
+        return a, b ,c
 
-
-class infoGAN_dogs(object):
-    def __init__(self, args, SUPERVISED=True):
+class WGAN_info_grayscale(object):
+    def __init__(self, args):
         # parameters
         self.epoch = args.epoch
         self.sample_num = 100
@@ -117,10 +120,9 @@ class infoGAN_dogs(object):
         self.log_dir = args.log_dir
         self.gpu_mode = args.gpu_mode
         self.model_name = args.gan_type
-        self.SUPERVISED = SUPERVISED  # if it is true, label info is directly used for code
-        self.len_discrete_code = 10  # categorical distribution (i.e. label)
-        self.len_continuous_code = 2  # gaussian distribution (e.g. rotation, thickness)
-
+        self.c = 0.1                   # clipping value
+        self.n_critic = 5               # the number of iterations of the critic per generator iteration
+        
         self.datetime = datetime.datetime.now().strftime("%Y-%B-%d-%I-%M%p")
         self.writer = SummaryWriter(os.path.join("./runs", self.dataset, self.model_name, self.datetime))
 
@@ -148,46 +150,47 @@ class infoGAN_dogs(object):
         utils.print_network(self.D)
         print('-----------------------------------------------')
 
-        # load mnist
-        if self.dataset == 'mnist' or self.dataset == 'fashion-mnist':
-            self.data_X, self.data_Y = utils.load_mnist(args.dataset)
+        # load dataset
+        if self.dataset == 'mnist':
             self.data_loader = DataLoader(datasets.MNIST('data/mnist', train=True, download=True,
-                                                                          transform=transforms.Compose(
-                                                                              [transforms.ToTensor()])),
-                                                           batch_size=self.batch_size, shuffle=True)
-        # elif self.dataset == 'sdd':
-        #     self.data_loader = utils.load_sdd('./data/sdd/bounding_box_imgs', transform=transforms.Compose(
-        #         [transforms.Resize(64), transforms.CenterCrop(64), transforms.ToTensor()]),
-        #                                       batch_size=self.batch_size,
-        #                                       shuffle=True)
+                                                         transform=transforms.Compose(
+                                                             [transforms.ToTensor()])),
+                                          batch_size=self.batch_size, shuffle=True)
+        elif self.dataset == 'fashion-mnist':
+            self.data_loader = DataLoader(
+                datasets.FashionMNIST('data/fashion-mnist', train=True, download=True, transform=transforms.Compose(
+                    [transforms.ToTensor()])),
+                batch_size=self.batch_size, shuffle=True)
+        elif self.dataset == 'celebA':
+            self.data_loader = utils.load_celebA('data/celebA', transform=transforms.Compose(
+                [transforms.CenterCrop(160), transforms.Scale(64), transforms.ToTensor()]), batch_size=self.batch_size,
+                                                 shuffle=True)
         elif self.dataset == 'sdd':
             self.data_loader = utils.load_sdd('./data/vgg_pets/processed/bounding_box_imgs', transform=transforms.Compose(
             [transforms.Grayscale(), transforms.Resize(64), transforms.CenterCrop(64), transforms.ToTensor(), ]),
                                           batch_size=self.batch_size,
                                           shuffle=True)
         self.z_dim = 62
-        self.y_dim = 10
-
-        # For visualization
-        # fixed noise & condition
+        self.y_dim = len_discrete_code
+        
         self.sample_z_ = torch.zeros((self.sample_num, self.z_dim))
-        for i in range(10):
+        for i in range(len_discrete_code):
             self.sample_z_[i * self.y_dim] = torch.rand(1, self.z_dim)
             for j in range(1, self.y_dim):
                 self.sample_z_[i * self.y_dim + j] = self.sample_z_[i * self.y_dim]
-
-        temp = torch.zeros((10, 1))
+                
+        temp = torch.zeros((len_discrete_code, 1))
         for i in range(self.y_dim):
             temp[i, 0] = i
 
         temp_y = torch.zeros((self.sample_num, 1))
-        for i in range(10):
+        for i in range(len_discrete_code):
             temp_y[i * self.y_dim: (i + 1) * self.y_dim] = temp
 
         self.sample_y_ = torch.zeros((self.sample_num, self.y_dim))
         self.sample_y_.scatter_(1, temp_y.type(torch.LongTensor), 1)  # diagonal
-        self.sample_c_ = torch.zeros((self.sample_num, self.len_continuous_code))
-
+        self.sample_c_ = torch.zeros((self.sample_num, len_continuous_code))
+        
         # manipulating two continuous code
         temp_z_ = torch.rand((1, self.z_dim))
         self.sample_z2_ = temp_z_
@@ -196,17 +199,22 @@ class infoGAN_dogs(object):
             self.sample_z2_ = torch.cat([self.sample_z2_, temp_z_])
 
         y = np.zeros(self.sample_num, dtype=np.int64)
-        y_one_hot = np.zeros((self.sample_num, self.len_discrete_code))
+        y_one_hot = np.zeros((self.sample_num, len_discrete_code))
         y_one_hot[np.arange(self.sample_num), y] = 1
         self.sample_y2_ = torch.from_numpy(y_one_hot).type(torch.FloatTensor)
 
         temp_c = torch.linspace(-1, 1, 10)
-        self.sample_c2_ = torch.zeros((self.sample_num, 2))
+        self.sample_c2_ = torch.zeros((self.sample_num, len_continuous_code))
+        
+        # import IPython
+        # IPython.embed()
+        
         for i in range(10):
             for j in range(10):
                 self.sample_c2_[i * 10 + j, 0] = temp_c[i]
                 self.sample_c2_[i * 10 + j, 1] = temp_c[j]
 
+        # fixed noise
         if self.gpu_mode:
             self.sample_z_, self.sample_y_, self.sample_c_, self.sample_z2_, self.sample_y2_, self.sample_c2_ = \
                 Variable(self.sample_z_.cuda(), volatile=True), Variable(self.sample_y_.cuda(), volatile=True), \
@@ -227,13 +235,11 @@ class infoGAN_dogs(object):
         self.train_hist['total_time'] = []
 
         if self.gpu_mode:
-            self.y_real_, self.y_fake_ = Variable(torch.ones(self.batch_size, 1).cuda()), Variable(
-                torch.zeros(self.batch_size, 1).cuda())
+            self.y_real_, self.y_fake_ = Variable(torch.ones(self.batch_size, 1).cuda()), Variable(torch.zeros(self.batch_size, 1).cuda())
         else:
-            self.y_real_, self.y_fake_ = Variable(torch.ones(self.batch_size, 1)), Variable(
-                torch.zeros(self.batch_size, 1))
+            self.y_real_, self.y_fake_ = Variable(torch.ones(self.batch_size, 1)), Variable(torch.zeros(self.batch_size, 1))
 
-        # self.load()
+        self.load()
             
         self.D.train()
         print('training start!!')
@@ -241,35 +247,25 @@ class infoGAN_dogs(object):
         for epoch in range(self.epoch):
             self.G.train()
             epoch_start_time = time.time()
-            # for iter in range(len(self.data_X) // self.batch_size):
-            #     x_ = self.data_X[iter*self.batch_size:(iter+1)*self.batch_size]
             for iter, (x_, _) in enumerate(self.data_loader):
                 if iter == self.data_loader.dataset.__len__() // self.batch_size:
                     break
 
                 z_ = torch.rand((self.batch_size, self.z_dim))
-                if self.SUPERVISED == True:
-                    y_disc_ = self.data_Y[iter * self.batch_size:(iter + 1) * self.batch_size]
-                else:
-                    y_disc_ = torch.from_numpy(
-                        np.random.multinomial(1, self.len_discrete_code * [float(1.0 / self.len_discrete_code)],
+                
+                # NOTE: not supervised
+                y_disc_ = torch.from_numpy(
+                        np.random.multinomial(1, len_discrete_code * [float(1.0 / len_discrete_code)],
                                               size=[self.batch_size])).type(torch.FloatTensor)
 
                 y_cont_ = torch.from_numpy(np.random.uniform(-1, 1, size=(self.batch_size, 2))).type(torch.FloatTensor)
-
-                # import IPython
-                # IPython.embed()
-                # img = x_.numpy()[0, :].transpose([1, 2, 0])
-                # import matplotlib.pyplot as plt
-                # plt.imshow(img)
-                # plt.show()
-
+                
                 if self.gpu_mode:
                     x_, z_, y_disc_, y_cont_ = Variable(x_.cuda()), Variable(z_.cuda()), \
                                                Variable(y_disc_.cuda()), Variable(y_cont_.cuda())
                 else:
                     x_, z_, y_disc_, y_cont_ = Variable(x_), Variable(z_), Variable(y_disc_), Variable(y_cont_)
-
+                    
                 step = epoch * self.data_loader.dataset.__len__() // self.batch_size + iter
                 self.writer.add_image('Real_image', vutils.make_grid(x_.data), step)
 
@@ -277,91 +273,88 @@ class infoGAN_dogs(object):
                 self.D_optimizer.zero_grad()
 
                 D_real, _, _ = self.D(x_)
-                D_real_loss = self.BCE_loss(D_real, self.y_real_)
+                D_real_loss = -torch.mean(D_real)
 
                 G_ = self.G(z_, y_cont_, y_disc_)
                 D_fake, _, _ = self.D(G_)
-                D_fake_loss = self.BCE_loss(D_fake, self.y_fake_)
+                D_fake_loss = torch.mean(D_fake)
 
                 D_loss = D_real_loss + D_fake_loss
-                self.train_hist['D_loss'].append(D_loss.data[0])
 
                 D_loss.backward(retain_graph=True)
                 self.D_optimizer.step()
-
+                
                 self.writer.add_image('Fake_image', vutils.make_grid(G_.data), step)
-
+                
                 # fix noise
                 samples = self.G(self.sample_z_, self.sample_c_, self.sample_y_)
-                self.writer.add_image('Fake_fixed_image', vutils.make_grid(samples.data, 10), step)
+                self.writer.add_image('Fake_fixed_image', vutils.make_grid(samples.data), step)
 
-                # update G network
-                self.G_optimizer.zero_grad()
+                # clipping D
+                for p in self.D.parameters():
+                    p.data.clamp_(-self.c, self.c)
+                
+                if ((iter+1) % self.n_critic) == 0:
+                    # update G network
+                    self.G_optimizer.zero_grad()
 
-                G_ = self.G(z_, y_cont_, y_disc_)
-                D_fake, D_cont, D_disc = self.D(G_)
+                    G_ = self.G(z_, y_cont_, y_disc_)
+                    D_fake, D_cont, D_disc = self.D(G_)
+                    G_loss = -torch.mean(D_fake)
+                    self.train_hist['G_loss'].append(G_loss.data[0])
 
-                G_loss = self.BCE_loss(D_fake, self.y_real_)
-                self.train_hist['G_loss'].append(G_loss.data[0])
+                    G_loss.backward(retain_graph=True)
+                    self.G_optimizer.step()
 
-                G_loss.backward(retain_graph=True)
-                self.G_optimizer.step()
-
-                # information loss
-                disc_loss = self.CE_loss(D_disc, torch.max(y_disc_, 1)[1])
-                cont_loss = self.MSE_loss(D_cont, y_cont_)
-                info_loss = disc_loss + cont_loss
-                self.train_hist['info_loss'].append(info_loss.data[0])
+                    self.train_hist['D_loss'].append(D_loss.data[0])
+                    
+                    # information loss
+                    disc_loss = self.CE_loss(D_disc, torch.max(y_disc_, 1)[1])
+                    cont_loss = self.MSE_loss(D_cont, y_cont_)
+                    info_loss = disc_loss + cont_loss
+                    self.train_hist['info_loss'].append(info_loss.data[0])
+                    info_loss.backward()
+                    self.info_optimizer.step()
+                    
+                    self.writer.add_scalar('info_loss', info_loss.data[0], step)
 
                 # import IPython
                 # IPython.embed()
-
-                info_loss.backward()
-                self.info_optimizer.step()
-
+                    
                 self.writer.add_scalar('D_loss', D_loss.data[0], step)
                 self.writer.add_scalar('D_Real_value', D_real_loss.data[0], step)
                 self.writer.add_scalar('D_Fake_before_op', D_fake_loss.data[0], step)
-                self.writer.add_scalar('info_loss', info_loss.data[0], step)
 
-                if ((iter + 1) % 50) == 0:
-                    if self.dataset == 'mnist' or self.dataset == 'fashion-mnist':
-                        print("Epoch: [%2d] [%4d/%4d] D_loss: %.8f, G_loss: %.8f, info_loss: %.8f" %
-                              ((epoch + 1), (iter + 1), len(self.data_X) // self.batch_size, D_loss.data[0],
-                               G_loss.data[0],
-                               info_loss.data[0]))
-                    elif self.dataset == 'sdd':
-                        print("Epoch: [%2d] [%4d/%4d] D_loss: %.8f, G_loss: %.8f, info_loss: %.8f" %
-                              ((epoch + 1), (iter + 1), self.data_loader.dataset.__len__() // self.batch_size,
-                               D_loss.data[0], G_loss.data[0],
-                               info_loss.data[0]))
+                if ((iter + 1) % 100) == 0:
+                    print("Epoch: [%2d] [%4d/%4d] D_loss: %.8f, G_loss: %.8f" %
+                          ((epoch + 1), (iter + 1), self.data_loader.dataset.__len__() // self.batch_size, D_loss.data[0], G_loss.data[0]))
 
             self.train_hist['per_epoch_time'].append(time.time() - epoch_start_time)
-            self.visualize_results((epoch + 1))
+            self.visualize_results((epoch+1))
 
         self.train_hist['total_time'].append(time.time() - start_time)
         print("Avg one epoch time: %.2f, total %d epochs time: %.2f" % (np.mean(self.train_hist['per_epoch_time']),
-                                                                        self.epoch, self.train_hist['total_time'][0]))
+              self.epoch, self.train_hist['total_time'][0]))
         print("Training finish!... save training results")
 
         self.save()
         utils.generate_animation(self.result_dir + '/' + self.dataset + '/' + self.model_name + '/' + self.model_name,
                                  self.epoch)
-        utils.generate_animation(
-            self.result_dir + '/' + self.dataset + '/' + self.model_name + '/' + self.model_name + '_cont',
-            self.epoch)
-        self.loss_plot(self.train_hist, os.path.join(self.save_dir, self.dataset, self.model_name), self.model_name)
+        utils.loss_plot(self.train_hist, os.path.join(self.save_dir, self.dataset, self.model_name), self.model_name)
+        
+        self.writer.close()
 
-    def visualize_results(self, epoch):
+    def visualize_results(self, epoch, fix=True):
         self.G.eval()
 
         if not os.path.exists(self.result_dir + '/' + self.dataset + '/' + self.model_name):
             os.makedirs(self.result_dir + '/' + self.dataset + '/' + self.model_name)
 
-        image_frame_dim = int(np.floor(np.sqrt(self.sample_num)))
+        tot_num_samples = min(self.sample_num, self.batch_size)
+        image_frame_dim = int(np.floor(np.sqrt(tot_num_samples)))
 
-        """ style by class """
         samples = self.G(self.sample_z_, self.sample_c_, self.sample_y_)
+
         if self.gpu_mode:
             samples = samples.cpu().data.numpy().transpose(0, 2, 3, 1)
         else:
@@ -369,16 +362,6 @@ class infoGAN_dogs(object):
 
         utils.save_images(samples[:image_frame_dim * image_frame_dim, :, :, :], [image_frame_dim, image_frame_dim],
                           self.result_dir + '/' + self.dataset + '/' + self.model_name + '/' + self.model_name + '_epoch%03d' % epoch + '.png')
-
-        """ manipulating two continous codes """
-        samples = self.G(self.sample_z2_, self.sample_c2_, self.sample_y2_)
-        if self.gpu_mode:
-            samples = samples.cpu().data.numpy().transpose(0, 2, 3, 1)
-        else:
-            samples = samples.data.numpy().transpose(0, 2, 3, 1)
-
-        utils.save_images(samples[:image_frame_dim * image_frame_dim, :, :, :], [image_frame_dim, image_frame_dim],
-                          self.result_dir + '/' + self.dataset + '/' + self.model_name + '/' + self.model_name + '_cont_epoch%03d' % epoch + '.png')
 
     def save(self):
         save_dir = os.path.join(self.save_dir, self.dataset, self.model_name)
@@ -397,25 +380,3 @@ class infoGAN_dogs(object):
 
         self.G.load_state_dict(torch.load(os.path.join(save_dir, self.model_name + '_G.pkl')))
         self.D.load_state_dict(torch.load(os.path.join(save_dir, self.model_name + '_D.pkl')))
-
-    def loss_plot(self, hist, path='Train_hist.png', model_name=''):
-        x = range(len(hist['D_loss']))
-
-        y1 = hist['D_loss']
-        y2 = hist['G_loss']
-        y3 = hist['info_loss']
-
-        plt.plot(x, y1, label='D_loss')
-        plt.plot(x, y2, label='G_loss')
-        plt.plot(x, y3, label='info_loss')
-
-        plt.xlabel('Iter')
-        plt.ylabel('Loss')
-
-        plt.legend(loc=4)
-        plt.grid(True)
-        plt.tight_layout()
-
-        path = os.path.join(path, model_name + '_loss.png')
-
-        plt.savefig(path)
