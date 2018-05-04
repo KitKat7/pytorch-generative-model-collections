@@ -102,7 +102,7 @@ class discriminator(nn.Module):
         x = self.fc(x)
         
         # a = F.sigmoid(x[:, self.output_dim])
-        a = x[:, self.output_dim]
+        a = x[:, self.output_dim - 1]
         b = x[:, self.output_dim:self.output_dim + len_continuous_code]
         c = x[:, self.output_dim + len_continuous_code:]
 
@@ -120,7 +120,7 @@ class WGAN_info_grayscale(object):
         self.log_dir = args.log_dir
         self.gpu_mode = args.gpu_mode
         self.model_name = args.gan_type
-        self.c = 0.1                   # clipping value
+        self.c = 0.01                   # clipping value
         self.n_critic = 5               # the number of iterations of the critic per generator iteration
         
         self.datetime = datetime.datetime.now().strftime("%Y-%B-%d-%I-%M%p")

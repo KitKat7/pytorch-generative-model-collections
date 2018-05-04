@@ -14,6 +14,7 @@ from EBGAN import EBGAN
 from BEGAN import BEGAN
 
 from WGAN_info_grayscale import WGAN_info_grayscale
+from WGAN_info_color import WGAN_info_color
 
 """parsing and configuration"""
 def parse_args():
@@ -21,7 +22,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=desc)
 
     parser.add_argument('--gan_type', type=str, default='EBGAN',
-                        choices=['GAN', 'GAN_dogs', 'CGAN', 'infoGAN', 'infoGAN_dogs', 'ACGAN', 'EBGAN', 'BEGAN', 'WGAN', 'WGAN_grayscale', 'WGAN_GP', 'DRAGAN', 'LSGAN', 'WGAN_info_grayscale'],
+                        choices=['GAN', 'GAN_dogs', 'CGAN', 'infoGAN', 'infoGAN_dogs', 'ACGAN', 'EBGAN', 'BEGAN', 'WGAN', 'WGAN_grayscale', 'WGAN_GP', 'DRAGAN', 'LSGAN', 'WGAN_info_grayscale', 'WGAN_info_color'],
                         help='The type of GAN')#, required=True)
     parser.add_argument('--dataset', type=str, default='mnist', choices=['sdd', 'mnist', 'fashion-mnist', 'celebA'],
                         help='The name of dataset')
@@ -105,6 +106,8 @@ def main():
         gan = BEGAN(args)
     elif args.gan_type == 'WGAN_info_grayscale':
         gan = WGAN_info_grayscale(args)
+    elif args.gan_type == 'WGAN_info_color':
+        gan = WGAN_info_color(args)
     else:
         raise Exception("[!] There is no option for " + args.gan_type)
 
